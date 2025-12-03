@@ -96,11 +96,11 @@ const ConnectWallet = () => {
         }
       } catch (error) {
         console.error('Error parsing user data:', error);
-        navigate('/student-dashboard');
+        navigate('/dashboard');
       }
     } else {
       // Default to student dashboard if no user data
-      navigate('/student-dashboard');
+      navigate('/dashboard');
     }
   }, [navigate]);
 
