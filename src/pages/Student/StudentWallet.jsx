@@ -361,7 +361,7 @@ const StudentWallet = () => {
                     className="w-full bg-white text-blue-600 py-3 rounded-lg font-semibold hover:bg-gray-100 transition-colors flex items-center justify-center gap-2"
                   >
                     <Send className="w-5 h-5" />
-                    Send Payment
+                    Make Payment
                   </button>
                 </>
               ) : (
