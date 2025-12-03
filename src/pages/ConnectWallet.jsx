@@ -1,13 +1,20 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { HelpCircle } from 'lucide-react';
 
 const ConnectWallet = () => {
+  const navigate = useNavigate();
   const [selectedCard, setSelectedCard] = useState(null);
   const [isConnecting, setIsConnecting] = useState(false);
   const [walletConnected, setWalletConnected] = useState(false);
   const [account, setAccount] = useState(null);
   const [error, setError] = useState(null);
   const [currentNetwork, setCurrentNetwork] = useState(null);
+  const [walletInstalled, setWalletInstalled] = useState({
+    metamask: false,
+    binance: false,
+    phantom: false
+  });
 
   // Camp Network Configuration
   const CAMP_NETWORK = {
@@ -22,45 +29,39 @@ const ConnectWallet = () => {
     blockExplorerUrls: ['https://explorerl2new-camp-network-4xje7wy105.t.conduit.xyz']
   };
 
-  useEffect(() => {
-    checkWalletConnection();
-    setupEventListeners();
-    
-    return () => {
-      removeEventListeners();
-    };
-  }, []);
-
-  const setupEventListeners = () => {
+  const setupEventListeners = useCallback(() => {
     if (typeof window.ethereum !== 'undefined') {
       window.ethereum.on('accountsChanged', handleAccountsChanged);
       window.ethereum.on('chainChanged', handleChainChanged);
     }
-  };
+  }, []);
 
-  const removeEventListeners = () => {
+  const removeEventListeners = useCallback(() => {
     if (typeof window.ethereum !== 'undefined') {
       window.ethereum.removeListener('accountsChanged', handleAccountsChanged);
       window.ethereum.removeListener('chainChanged', handleChainChanged);
     }
-  };
+  }, []);
 
-  const handleAccountsChanged = (accounts) => {
+  const handleAccountsChanged = useCallback((accounts) => {
     if (accounts.length === 0) {
       setWalletConnected(false);
       setAccount(null);
+      localStorage.removeItem('kynda_wallet_address');
+      localStorage.removeItem('kynda_wallet_type');
     } else {
       setAccount(accounts[0]);
       setWalletConnected(true);
+      localStorage.setItem('kynda_wallet_address', accounts[0]);
     }
-  };
+  }, []);
 
-  const handleChainChanged = (chainId) => {
+  const handleChainChanged = useCallback((chainId) => {
     setCurrentNetwork(chainId);
     window.location.reload();
-  };
+  }, []);
 
-  const checkWalletConnection = async () => {
+  const checkWalletConnection = useCallback(async () => {
     if (typeof window.ethereum !== 'undefined') {
       try {
         const accounts = await window.ethereum.request({ method: 'eth_accounts' });
@@ -68,7 +69,6 @@ const ConnectWallet = () => {
           setAccount(accounts[0]);
           setWalletConnected(true);
           
-          // Check current network
           const chainId = await window.ethereum.request({ method: 'eth_chainId' });
           setCurrentNetwork(chainId);
         }
@@ -76,7 +76,77 @@ const ConnectWallet = () => {
         console.error('Error checking wallet connection:', error);
       }
     }
-  };
+  }, []);
+
+  const redirectToDashboard = useCallback(() => {
+    // Check user role and redirect accordingly
+    const userData = localStorage.getItem('kynda_user');
+    
+    if (userData) {
+      try {
+        const user = JSON.parse(userData);
+        const role = user.role || 'student';
+        
+        if (role === 'tutor') {
+          navigate('/tutor-dashboard');
+        } else if (role === 'parent') {
+          navigate('/parent-dashboard');
+        } else {
+          navigate('/student-dashboard');
+        }
+      } catch (error) {
+        console.error('Error parsing user data:', error);
+        navigate('/student-dashboard');
+      }
+    } else {
+      // Default to student dashboard if no user data
+      navigate('/student-dashboard');
+    }
+  }, [navigate]);
+
+  useEffect(() => {
+    // Check if user already connected
+    const savedWallet = localStorage.getItem('kynda_wallet_address');
+    const savedWalletType = localStorage.getItem('kynda_wallet_type');
+    
+    if (savedWallet && savedWalletType) {
+      setAccount(savedWallet);
+      setWalletConnected(true);
+      // Auto-redirect to dashboard if already connected
+      const timer = setTimeout(() => {
+        redirectToDashboard();
+      }, 1500);
+      return () => clearTimeout(timer);
+    }
+
+    // Function to check all wallet installations
+    const checkWalletInstallations = () => {
+      setWalletInstalled({
+        metamask: typeof window.ethereum !== 'undefined',
+        binance: typeof window.BinanceChain !== 'undefined',
+        phantom: typeof window.solana !== 'undefined' && window.solana.isPhantom
+      });
+    };
+
+    checkWalletInstallations();
+
+    const checkMetaMaskLoaded = setInterval(() => {
+      checkWalletInstallations();
+      if (typeof window.ethereum !== 'undefined') {
+        clearInterval(checkMetaMaskLoaded);
+        checkWalletConnection();
+        setupEventListeners();
+      }
+    }, 100);
+
+    const timeoutId = setTimeout(() => clearInterval(checkMetaMaskLoaded), 5000);
+
+    return () => {
+      clearInterval(checkMetaMaskLoaded);
+      clearTimeout(timeoutId);
+      removeEventListeners();
+    };
+  }, [checkWalletConnection, setupEventListeners, removeEventListeners, redirectToDashboard]);
 
   const addCampNetwork = async () => {
     try {
@@ -104,7 +174,6 @@ const ConnectWallet = () => {
       });
       return true;
     } catch (error) {
-      // This error code indicates that the chain has not been added to MetaMask
       if (error.code === 4902) {
         console.log('Camp network not found, adding it...');
         return await addCampNetwork();
@@ -118,11 +187,38 @@ const ConnectWallet = () => {
     }
   };
 
+  const saveWalletToLocalStorage = (address, walletType, networkInfo = null) => {
+    localStorage.setItem('kynda_wallet_address', address);
+    localStorage.setItem('kynda_wallet_type', walletType);
+    localStorage.setItem('kynda_wallet_connected', 'true');
+    localStorage.setItem('kynda_wallet_connected_at', new Date().toISOString());
+    
+    if (networkInfo) {
+      localStorage.setItem('kynda_wallet_network', JSON.stringify(networkInfo));
+    }
+
+    // Also save to user data if available
+    const userData = localStorage.getItem('kynda_user');
+    if (userData) {
+      try {
+        const user = JSON.parse(userData);
+        user.walletAddress = address;
+        user.walletType = walletType;
+        user.walletConnected = true;
+        localStorage.setItem('kynda_user', JSON.stringify(user));
+      } catch (error) {
+        console.error('Error updating user data:', error);
+      }
+    }
+  };
+
   const connectMetaMask = async () => {
-    // Check if MetaMask is installed
-    if (typeof window.ethereum === 'undefined') {
-      setError('MetaMask is not installed. Please install MetaMask extension first.');
-      // Open MetaMask download page
+    const isMetaMaskInstalled = typeof window.ethereum !== 'undefined';
+    
+    setWalletInstalled(prev => ({ ...prev, metamask: isMetaMaskInstalled }));
+
+    if (!isMetaMaskInstalled) {
+      setError('MetaMask is not installed. Please install MetaMask extension and refresh this page.');
       window.open('https://metamask.io/download/', '_blank');
       return;
     }
@@ -131,22 +227,33 @@ const ConnectWallet = () => {
     setError(null);
 
     try {
-      // Request account access
       const accounts = await window.ethereum.request({ 
         method: 'eth_requestAccounts' 
       });
 
       if (accounts.length > 0) {
-        setAccount(accounts[0]);
+        const walletAddress = accounts[0];
+        setAccount(walletAddress);
         setWalletConnected(true);
         
-        // Switch to Camp Network after connecting
         console.log('Switching to Camp Network...');
         const networkSwitched = await switchToCampNetwork();
         
         if (networkSwitched) {
+          const chainId = await window.ethereum.request({ method: 'eth_chainId' });
+          
+          saveWalletToLocalStorage(walletAddress, 'metamask', {
+            network: 'Camp Network Testnet V2',
+            chainId: chainId
+          });
+          
           setError(null);
           console.log('Successfully connected to Camp Network');
+          
+          // Show success message and redirect
+          setTimeout(() => {
+            redirectToDashboard();
+          }, 2000);
         } else {
           setError('Connected to MetaMask but failed to switch to Camp Network');
         }
@@ -164,9 +271,12 @@ const ConnectWallet = () => {
   };
 
   const connectBinance = async () => {
-    // Check if Binance Chain Wallet is installed
-    if (typeof window.BinanceChain === 'undefined') {
-      setError('Binance Chain Wallet is not installed. Please install it first.');
+    const isBinanceInstalled = typeof window.BinanceChain !== 'undefined';
+    
+    setWalletInstalled(prev => ({ ...prev, binance: isBinanceInstalled }));
+
+    if (!isBinanceInstalled) {
+      setError('Binance Chain Wallet is not installed. Please install it and refresh this page.');
       window.open('https://www.bnbchain.org/en/binance-wallet', '_blank');
       return;
     }
@@ -180,9 +290,17 @@ const ConnectWallet = () => {
       });
       
       if (accounts.length > 0) {
-        setAccount(accounts[0]);
+        const walletAddress = accounts[0];
+        setAccount(walletAddress);
         setWalletConnected(true);
+        
+        saveWalletToLocalStorage(walletAddress, 'binance');
         setError(null);
+        
+        // Redirect after 2 seconds
+        setTimeout(() => {
+          redirectToDashboard();
+        }, 2000);
       }
     } catch (error) {
       console.error('Binance wallet connection error:', error);
@@ -197,9 +315,12 @@ const ConnectWallet = () => {
   };
 
   const connectPhantom = async () => {
-    // Check if Phantom is installed
-    if (typeof window.solana === 'undefined' || !window.solana.isPhantom) {
-      setError('Phantom Wallet is not installed. Please install it first.');
+    const isPhantomInstalled = typeof window.solana !== 'undefined' && window.solana.isPhantom;
+    
+    setWalletInstalled(prev => ({ ...prev, phantom: isPhantomInstalled }));
+
+    if (!isPhantomInstalled) {
+      setError('Phantom Wallet is not installed. Please install it and refresh this page.');
       window.open('https://phantom.app/', '_blank');
       return;
     }
@@ -209,9 +330,18 @@ const ConnectWallet = () => {
 
     try {
       const response = await window.solana.connect();
-      setAccount(response.publicKey.toString());
+      const walletAddress = response.publicKey.toString();
+      
+      setAccount(walletAddress);
       setWalletConnected(true);
+      
+      saveWalletToLocalStorage(walletAddress, 'phantom');
       setError(null);
+      
+      // Redirect after 2 seconds
+      setTimeout(() => {
+        redirectToDashboard();
+      }, 2000);
     } catch (error) {
       console.error('Phantom connection error:', error);
       if (error.code === 4001) {
@@ -243,14 +373,6 @@ const ConnectWallet = () => {
       default:
         setError('Invalid wallet selection');
     }
-  };
-
-  const disconnectWallet = () => {
-    setWalletConnected(false);
-    setAccount(null);
-    setSelectedCard(null);
-    setCurrentNetwork(null);
-    setError(null);
   };
 
   const onboardingStates = {
@@ -338,26 +460,63 @@ const ConnectWallet = () => {
             </p>
           </div>
 
-          {/* Wallet Connection Status */}
-          {walletConnected && account && (
-            <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-green-800 font-semibold">
-                    Connected: {account.slice(0, 6)}...{account.slice(-4)}
-                  </p>
-                  {currentNetwork && currentNetwork === CAMP_NETWORK.chainId && (
-                    <p className="text-green-600 text-sm mt-1">
-                      ✓ Camp Network Testnet V2
-                    </p>
+          {/* Wallet Installation Status */}
+          {!walletConnected && (
+            <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+              <p className="text-blue-800 font-semibold mb-2">Wallet Detection Status:</p>
+              <div className="space-y-1 text-sm">
+                <div className="flex items-center gap-2">
+                  <span className={walletInstalled.metamask ? "text-green-600" : "text-gray-500"}>
+                    {walletInstalled.metamask ? "✓" : "○"} MetaMask
+                  </span>
+                  {!walletInstalled.metamask && (
+                    <a 
+                      href="https://metamask.io/download/" 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="text-blue-600 hover:underline text-xs"
+                    >
+                      (Install)
+                    </a>
                   )}
                 </div>
-                <button
-                  onClick={disconnectWallet}
-                  className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors text-sm"
-                >
-                  Disconnect
-                </button>
+                <div className="flex items-center gap-2">
+                  <span className={walletInstalled.binance ? "text-green-600" : "text-gray-500"}>
+                    {walletInstalled.binance ? "✓" : "○"} Binance Wallet
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className={walletInstalled.phantom ? "text-green-600" : "text-gray-500"}>
+                    {walletInstalled.phantom ? "✓" : "○"} Phantom Wallet
+                  </span>
+                </div>
+              </div>
+              {!walletInstalled.metamask && !walletInstalled.binance && !walletInstalled.phantom && (
+                <p className="text-orange-600 text-xs mt-2">
+                  ⚠️ No wallets detected. Please install a wallet and refresh the page.
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* Wallet Connection Success */}
+          {walletConnected && account && (
+            <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg animate-pulse">
+              <div className="flex items-center justify-center flex-col">
+                <div className="text-green-800 font-bold text-xl mb-2">
+                  ✓ Wallet Connected Successfully!
+                </div>
+                <p className="text-green-700 text-sm mb-2">
+                  Address: {account.slice(0, 6)}...{account.slice(-4)}
+                </p>
+                {currentNetwork && currentNetwork === CAMP_NETWORK.chainId && (
+                  <p className="text-green-600 text-sm">
+                    ✓ Camp Network Testnet V2
+                  </p>
+                )}
+                <p className="text-gray-600 text-sm mt-3">
+                  Redirecting to dashboard...
+                </p>
               </div>
             </div>
           )}
@@ -389,7 +548,6 @@ const ConnectWallet = () => {
                   `}
                 >
                   <div className="flex flex-col items-center gap-4">
-                    {/* Illustration Image */}
                     <div className="w-32 h-32 flex items-center justify-center">
                       <img 
                         src={card.image} 
@@ -398,7 +556,6 @@ const ConnectWallet = () => {
                       />
                     </div>
                     
-                    {/* Title */}
                     <h3 className={`
                       text-lg font-semibold text-center
                       ${isSelected ? 'text-[#1E2382]' : 'text-gray-800'}
@@ -432,8 +589,11 @@ const ConnectWallet = () => {
           {/* Alternative Link */}
           <div className="flex items-center justify-center text-gray-700">
             <span>Connect with Fiat Instead?</span>
-            <button className="ml-2 text-blue-600 hover:text-blue-800 underline font-semibold">
-              Connect Bank
+            <button 
+              onClick={() => redirectToDashboard()}
+              className="ml-2 text-blue-600 hover:text-blue-800 underline font-semibold"
+            >
+              Skip to Dashboard
             </button>
           </div>
         </div>

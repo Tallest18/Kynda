@@ -1,12 +1,16 @@
-
 import React, { useState, useEffect } from 'react';
-import { Menu, X, ChevronDown, Facebook, Linkedin, Twitter, Youtube, Phone, Mail } from 'lucide-react';
+import { Facebook, Linkedin, Twitter, Youtube, Phone, Mail } from 'lucide-react';
 
 const Footer = () => {
   const [isVisible, setIsVisible] = useState(false);
 
   useEffect(() => {
-    setIsVisible(true);
+    // Use requestAnimationFrame to avoid synchronous setState in effect
+    const timer = requestAnimationFrame(() => {
+      setIsVisible(true);
+    });
+    
+    return () => cancelAnimationFrame(timer);
   }, []);
 
   const socialLinks = {

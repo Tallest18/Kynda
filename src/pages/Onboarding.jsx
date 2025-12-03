@@ -30,19 +30,19 @@ const Onboarding = () => {
       id: 'learn',
       title: "I'm Here to Learn",
       image: "../images/Group.png",
-      gradient: "from-blue-600 to-cyan-500"
+      gradient: "from-blue-700 to-blue-800"
     },
     {
       id: 'parent',
       title: "I'm Here for My Child",
       image: "../images/Group (1).png",
-      gradient: "from-blue-600 to-cyan-500"
+      gradient: "from-blue-700 to-blue-800"
     },
     {
       id: 'teach',
       title: "I'm Here to Teach & Earn",
       image: "../images/Group (2).png",
-      gradient: "from-blue-600 to-cyan-500"
+      gradient: "from-blue-700 to-blue-800"
     }
   ];
 
