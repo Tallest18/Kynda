@@ -92,7 +92,7 @@ const ConnectWallet = () => {
         } else if (role === 'parent') {
           navigate('/parent-dashboard');
         } else {
-          navigate('/student-dashboard');
+          navigate('/dashboard');
         }
       } catch (error) {
         console.error('Error parsing user data:', error);
